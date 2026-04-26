@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calgary Open Data Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    #toolbar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; background: #ffffff;
+      border-bottom: 1px solid #e2e2dd;
+      flex-wrap: wrap; z-index: 1000; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    #toolbar-title { display: flex; align-items: center; gap: 10px; margin-right: 6px; }
+    #toolbar-title h1 { font-size: 15px; font-weight: 600; color: #1a1a18; white-space: nowrap; }
+    #toolbar-title span { font-size: 11px; color: #888; background: #f0f0ea; padding: 2px 8px; border-radius: 20px; }
+    .layer-btn {
+      font-size: 12px; padding: 5px 12px;
+      border-radius: 20px; border: 1px solid #d0d0c8;
+      background: #fafaf7; color: #555;
+      cursor: pointer; transition: all 0.15s; white-space: nowrap; font-family: inherit;
+    }
+    .layer-btn.active { background: #185FA5; border-color: #185FA5; color: #fff; }
+    .layer-btn:hover:not(.active) { background: #efefea; border-color: #bbb; }
+    #status { font-size: 11px; color: #aaa; margin-left: auto; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+    #status-dot { width: 7px; height: 7px; border-radius: 50%; background: #ccc; }
+    #status-dot.loading { background: #EF9F27; animation: pulse 1s infinite; }
+    #status-dot.ready { background: #1D9E75; }
+    #status-dot.error { background: #E24B4A; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    #map-container { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+    #legend {
+      position: absolute; bottom: 28px; right: 12px;
+      background: #fff; border: 1px solid #e2e2dd;
+      border-radius: 10px; padding: 10px 14px;
+      font-size: 11px; z-index: 500; min-width: 150px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    #legend h3 { font-size: 11px; font-weight: 600; color: #888; margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; color: #444; font-size: 12px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .legend-line { width: 20px; height: 3px; flex-shrink: 0; border-radius: 2px; }
+    #info-panel {
+      position: absolute; top: 12px; right: 12px;
+      background: #fff; border: 1px solid #e2e2dd;
+      border-radius: 12px; padding: 14px 16px;
+      font-size: 12px; z-index: 500; max-width: 240px;
+      display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+    #info-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+    #info-panel h3 { font-size: 13px; font-weight: 600; color: #1a1a18; flex: 1; }
+    #info-close { cursor: pointer; color: #aaa; font-size: 16px; line-height: 1; padding-left: 8px; }
+    #info-close:hover { color: #555; }
+    #info-body { color: #666; line-height: 1.6; font-size: 11.5px; }
+    #info-body b { color: #444; }
+    #source-credit { position: absolute; bottom: 4px; left: 12px; font-size: 10px; color: #aaa; z-index: 500; }
+    #source-credit a { color: #888; text-decoration: none; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <div id="toolbar-title">
+      <h1>Calgary Open Data Map</h1>
+      <span>Live data</span>
+    </div>
+    <button class="layer-btn active" data-layer="communities" onclick="toggleLayer('communities', this)">Communities</button>
+    <button class="layer-btn" data-layer="firestations" onclick="toggleLayer('firestations', this)">Fire Stations</button>
+    <button class="layer-btn" data-layer="recreation" onclick="toggleLayer('recreation', this)">Recreation</button>
+    <button class="layer-btn" data-layer="bikeways" onclick="toggleLayer('bikeways', this)">Bikeways</button>
+    <button class="layer-btn" data-layer="publicart" onclick="toggleLayer('publicart', this)">Public Art</button>
+    <button class="layer-btn" data-layer="trees" onclick="toggleLayer('trees', this)">Urban Trees</button>
+    <div id="status"><div id="status-dot" class="loading"></div><span id="status-text">Loading...</span></div>
+  </div>
+  <div id="map-container">
+    <div id="map"></div>
+    <div id="legend">
+      <h3>Legend</h3>
+      <div id="legend-items"></div>
+    </div>
+    <div id="info-panel">
+      <div id="info-header">
+        <h3 id="info-title">Feature info</h3>
+        <span id="info-close" onclick="document.getElementById('info-panel').style.display='none'">&#x2715;</span>
+      </div>
+      <div id="info-body"></div>
+    </div>
+    <div id="source-credit">
+      Data: <a href="https://data.calgary.ca" target="_blank">City of Calgary Open Data</a> &nbsp;|&nbsp; Map: &copy; OpenStreetMap contributors, CARTO
+    </div>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const CALGARY_CENTER = [51.0447, -114.0719];
+const BASE_URL = 'https://data.calgary.ca/resource/';
+const LAYERS_CONFIG = {
+  communities: { label: 'Community boundaries', color: '#185FA5', type: 'polygon', url: BASE_URL + 'j9ps-fyst.geojson?$limit=300', nameField: 'name', legendType: 'line' },
+  firestations: { label: 'Fire stations', color: '#E24B4A', type: 'point', url: BASE_URL + 'ensa-5tb3.geojson?$limit=200', nameField: 'name', legendType: 'dot' },
+  recreation: { label: 'Recreation facilities', color: '#1D9E75', type: 'point', url: BASE_URL + 'vb9x-684u.geojson?$limit=300', nameField: 'name', legendType: 'dot' },
+  bikeways: { label: 'Bikeways', color: '#EF9F27', type: 'line', url: BASE_URL + 'yigb-2xmq.geojson?$limit=2000', nameField: 'name', legendType: 'line' },
+  publicart: { label: 'Public art', color: '#D4537E', type: 'point', url: BASE_URL + '643n-987f.geojson?$limit=300', nameField: 'title', legendType: 'dot' },
+  trees: { label: 'Urban trees', color: '#639922', type: 'point', url: BASE_URL + 'uwi9-9nzk.geojson?$limit=800', nameField: 'common_name', legendType: 'dot' },
+};
+let map, activeLayers = {}, loadedData = {};
+function initMap() {
+  map = L.map('map').setView(CALGARY_CENTER, 11);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
+  }).addTo(map);
+  loadLayer('communities');
+  updateLegend();
+}
+function setStatus(msg, state) {
+  document.getElementById('status-text').textContent = msg;
+  const dot = document.getElementById('status-dot');
+  dot.className = state || 'loading';
+}
+async function loadLayer(key) {
+  const cfg = LAYERS_CONFIG[key];
+  if (activeLayers[key]) return;
+  setStatus('Loading ' + cfg.label + '...', 'loading');
+  try {
+    let data = loadedData[key];
+    if (!data) {
+      const res = await fetch(cfg.url);
+      data = await res.json();
+      loadedData[key] = data;
+    }
+    const layer = renderLayer(key, data, cfg);
+    activeLayers[key] = layer;
+    layer.addTo(map);
+    setStatus('Ready', 'ready');
+  } catch(e) {
+    setStatus('Error loading ' + cfg.label, 'error');
+  }
+}
+function renderLayer(key, geojson, cfg) {
+  return L.geoJSON(geojson, {
+    style: cfg.type === 'polygon' ? () => ({ color: cfg.color, weight: 1.5, fillColor: cfg.color, fillOpacity: 0.07, opacity: 0.7 })
+          : cfg.type === 'line' ? () => ({ color: cfg.color, weight: 2.5, opacity: 0.8 }) : null,
+    pointToLayer: cfg.type === 'point' ? (f, latlng) => L.circleMarker(latlng, {
+      radius: 6, fillColor: cfg.color, color: '#fff', weight: 1.5, opacity: 1, fillOpacity: 0.9
+    }) : null,
+    onEachFeature: (f, l) => {
+      const p = f.properties || {};
+      const name = p[cfg.nameField] || p.name || p.title || 'Unknown';
+      const skip = ['the_geom','objectid','shape','shape_length','shape_area'];
+      const extras = Object.entries(p).filter(([k]) => !skip.includes(k.toLowerCase()) && p[k]).slice(0,5).map(([k,v]) => `<b>${k.replace(/_/g,' ')}:</b> ${v}`).join('<br>');
+      l.on('click', () => showInfo(name, extras || 'No additional details.'));
+    }
+  });
+}
+function toggleLayer(key, btn) {
+  btn.classList.toggle('active');
+  if (activeLayers[key]) { map.removeLayer(activeLayers[key]); delete activeLayers[key]; setStatus('Ready','ready'); }
+  else loadLayer(key);
+  updateLegend();
+}
+function showInfo(title, body) {
+  document.getElementById('info-title').textContent = title;
+  document.getElementById('info-body').innerHTML = body;
+  document.getElementById('info-panel').style.display = 'block';
+}
+function updateLegend() {
+  const el = document.getElementById('legend-items');
+  const btns = document.querySelectorAll('.layer-btn.active');
+  el.innerHTML = '';
+  if (!btns.length) { el.innerHTML = '<div style="color:#aaa">No layers active</div>'; return; }
+  btns.forEach(btn => {
+    const cfg = LAYERS_CONFIG[btn.dataset.layer];
+    if (!cfg) return;
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = cfg.legendType === 'dot'
+      ? `<div class="legend-dot" style="background:${cfg.color}"></div><span>${cfg.label}</span>`
+      : `<div class="legend-line" style="background:${cfg.color}"></div><span>${cfg.label}</span>`;
+    el.appendChild(item);
+  });
+}
+initMap();
+</script>
+</body>
+</html>
